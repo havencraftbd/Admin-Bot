@@ -830,8 +830,13 @@ function setupSupabaseRealtime() {
                     sendPayload.files = files; // Discord.js attaches the actual media files natively!
                 }
 
-                // Clean sender formatting (no shield emoji for staff messages)
-                const prefix = msg.sender === 'staff' ? '' : '💬 ';
+                // Sender prefix formatting: 🤖 for HavenCraft AI, 💬 for Player, none for Staff
+                let prefix = '';
+                if (msg.sender_name === 'HavenCraft AI' || msg.sender === 'ai') {
+                    prefix = '🤖 ';
+                } else if (msg.sender === 'player') {
+                    prefix = '💬 ';
+                }
 
                 if (cleanText) {
                     sendPayload.content = `${prefix}**${msg.sender_name}:** ${cleanText}${escalationPings}`;
