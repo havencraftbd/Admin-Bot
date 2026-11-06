@@ -77,6 +77,9 @@ const client = new Client({
 // Set to deduplicate tickets closed via staff in Discord or already processed
 const handledClosedTickets = new Set();
 
+// Set to track tickets where staff has already been alerted via role ping (to prevent ping spamming on every message)
+const alertedEscalationTickets = new Set();
+
 // Sets to track messages originating from Discord to prevent echoing back into Discord
 const discordOriginMessageKeys = new Set();
 const discordOriginMessageIds = new Set();
@@ -739,9 +742,14 @@ function setupSupabaseRealtime() {
                 const targetChannel = await client.channels.fetch(ticket.discord_thread_id).catch(() => null);
                 if (!targetChannel) return;
 
-                // If thread was archived, unarchive to receive incoming message
-                if (targetChannel.isThread && targetChannel.isThread() && targetChannel.archived) {
-                    await targetChannel.setArchived(false, `Incoming ${msg.sender} message`).catch(() => {});
+                // If thread was archived or locked, unarchive & unlock to receive incoming message
+                if (targetChannel.isThread && targetChannel.isThread()) {
+                    if (targetChannel.archived) {
+                        await targetChannel.setArchived(false, `Incoming ${msg.sender} message`).catch(() => {});
+                    }
+                    if (targetChannel.locked) {
+                        await targetChannel.setLocked(false, `Incoming ${msg.sender} message`).catch(() => {});
+                    }
                 }
 
                 // Extract image URLs (including [image:URL] syntax from Admin Dashboard and direct URLs)
@@ -778,30 +786,26 @@ function setupSupabaseRealtime() {
                 let escalationPings = '';
                 const rawMsgLower = (msg.message || '').toLowerCase();
 
-                if (msg.sender_name === 'HavenCraft AI') {
+                const ticketKey = String(msg.ticket_id);
+                const alreadyAlerted = alertedEscalationTickets.has(ticketKey);
+
+                // Ping staff role ONLY on explicit escalation tags, and ONLY ONCE per ticket (no ping spam!)
+                if (msg.sender_name === 'HavenCraft AI' && !alreadyAlerted) {
                     if (
                         rawMsgLower.includes('[escalate:management]') ||
                         rawMsgLower.includes('@owner') ||
-                        rawMsgLower.includes('@admin') ||
-                        rawMsgLower.includes('senior staff') ||
-                        rawMsgLower.includes('higher-level') ||
-                        rawMsgLower.includes('appeal') ||
-                        rawMsgLower.includes('unban') ||
-                        rawMsgLower.includes('bkash') ||
-                        rawMsgLower.includes('payment') ||
-                        rawMsgLower.includes('manual rank') ||
-                        rawMsgLower.includes('ব্যান আপিল') ||
-                        rawMsgLower.includes('সিনিয়র স্টাফ')
+                        rawMsgLower.includes('@admin')
                     ) {
+                        alertedEscalationTickets.add(ticketKey);
                         escalationPings = `\n\n🔔 **Staff Attention:** ${MANAGEMENT_MENTIONS}`;
                     } else if (
                         rawMsgLower.includes('[escalate:moderation]') ||
-                        rawMsgLower.includes('@mod') ||
-                        rawMsgLower.includes('moderation team') ||
-                        rawMsgLower.includes('মডারেটর')
+                        rawMsgLower.includes('@mod')
                     ) {
+                        alertedEscalationTickets.add(ticketKey);
                         escalationPings = `\n\n🔔 **Staff Attention:** ${MOD_MENTIONS}`;
                     } else if (rawMsgLower.includes('[handover_to_staff]')) {
+                        alertedEscalationTickets.add(ticketKey);
                         escalationPings = `\n\n🔔 **Staff Attention:** ${MANAGEMENT_MENTIONS} ${MOD_MENTIONS}`;
                     }
                 }
@@ -814,12 +818,6 @@ function setupSupabaseRealtime() {
 
                 const sendPayload = {
                     allowedMentions: {
-                        roles: [
-                            DISCORD_ROLES.OWNER,
-                            DISCORD_ROLES.ADMIN_1,
-                            DISCORD_ROLES.ADMIN_2,
-                            DISCORD_ROLES.MOD
-                        ],
                         parse: ['roles', 'users']
                     }
                 };
