@@ -7,7 +7,8 @@ import {
     ButtonBuilder, 
     ButtonStyle, 
     ChannelType,
-    PermissionFlagsBits
+    PermissionFlagsBits,
+    Events
 } from 'discord.js';
 import { createClient } from '@supabase/supabase-js';
 import WebSocket from 'ws';
@@ -609,7 +610,7 @@ async function syncPendingTickets() {
 }
 
 // 4. Handle Discord Ready Event
-client.once('ready', async () => {
+client.once(Events.ClientReady, async () => {
     console.log(`✅ HavenCraft Ticket Bot logged in as ${client.user.tag}`);
 
     const target = await client.channels.fetch(TARGET_ID).catch(() => null);
