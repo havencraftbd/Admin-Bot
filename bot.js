@@ -699,6 +699,18 @@ function setupSupabaseRealtime() {
             // Only forward player messages or dashboard staff messages (ignore system/status logs)
             if (msg.sender !== 'player' && msg.sender !== 'staff') return;
 
+            // Filter out redundant system closure text that already has a dedicated embed in Discord
+            if (
+                msg.sender_name === 'HavenCraft System' || 
+                (typeof msg.message === 'string' && (
+                    msg.message.includes('Ticket resolved and closed') ||
+                    msg.message.includes('closed by user') ||
+                    msg.message.includes('closed by staff')
+                ))
+            ) {
+                return; // Skip posting duplicate text message into Discord
+            }
+
             try {
                 const { data: ticket, error } = await supabase
                     .from('tickets')
@@ -753,8 +765,63 @@ function setupSupabaseRealtime() {
                     .replace(/(https?:\/\/[^\s<>"'\)]+?\.(?:png|jpe?g|gif|webp)(?:\?[^\s<>"'\)]*)?)/gi, '')
                     .trim();
 
+                // Staff Discord Role IDs for targeted ping notifications
+                const DISCORD_ROLES = {
+                    OWNER: '1447293915240861719',
+                    ADMIN_1: '1565081129609076817',
+                    ADMIN_2: '1447293915165233267',
+                    MOD: '1447293915165233268'
+                };
+                const MANAGEMENT_MENTIONS = `<@&${DISCORD_ROLES.OWNER}> <@&${DISCORD_ROLES.ADMIN_1}> <@&${DISCORD_ROLES.ADMIN_2}>`;
+                const MOD_MENTIONS = `<@&${DISCORD_ROLES.MOD}>`;
+
+                let escalationPings = '';
+                const rawMsgLower = (msg.message || '').toLowerCase();
+
+                if (msg.sender_name === 'HavenCraft AI') {
+                    if (
+                        rawMsgLower.includes('[escalate:management]') ||
+                        rawMsgLower.includes('@owner') ||
+                        rawMsgLower.includes('@admin') ||
+                        rawMsgLower.includes('senior staff') ||
+                        rawMsgLower.includes('higher-level') ||
+                        rawMsgLower.includes('appeal') ||
+                        rawMsgLower.includes('unban') ||
+                        rawMsgLower.includes('bkash') ||
+                        rawMsgLower.includes('payment') ||
+                        rawMsgLower.includes('manual rank') ||
+                        rawMsgLower.includes('ব্যান আপিল') ||
+                        rawMsgLower.includes('সিনিয়র স্টাফ')
+                    ) {
+                        escalationPings = `\n\n🔔 **Staff Attention:** ${MANAGEMENT_MENTIONS}`;
+                    } else if (
+                        rawMsgLower.includes('[escalate:moderation]') ||
+                        rawMsgLower.includes('@mod') ||
+                        rawMsgLower.includes('moderation team') ||
+                        rawMsgLower.includes('মডারেটর')
+                    ) {
+                        escalationPings = `\n\n🔔 **Staff Attention:** ${MOD_MENTIONS}`;
+                    } else if (rawMsgLower.includes('[handover_to_staff]')) {
+                        escalationPings = `\n\n🔔 **Staff Attention:** ${MANAGEMENT_MENTIONS} ${MOD_MENTIONS}`;
+                    }
+                }
+
+                // Strip internal control tags and raw text @mentions from cleanText
+                cleanText = cleanText
+                    .replace(/\[(?:ESCALATE|HANDOVER)[^\]]*\]/gi, '')
+                    .replace(/@(Admin|Owner|Mod)\b/gi, '')
+                    .trim();
+
                 const sendPayload = {
-                    allowedMentions: { parse: [] }
+                    allowedMentions: {
+                        roles: [
+                            DISCORD_ROLES.OWNER,
+                            DISCORD_ROLES.ADMIN_1,
+                            DISCORD_ROLES.ADMIN_2,
+                            DISCORD_ROLES.MOD
+                        ],
+                        parse: ['roles', 'users']
+                    }
                 };
 
                 const files = [...matches];
@@ -769,13 +836,13 @@ function setupSupabaseRealtime() {
                 const prefix = msg.sender === 'staff' ? '' : '💬 ';
 
                 if (cleanText) {
-                    sendPayload.content = `${prefix}**${msg.sender_name}:** ${cleanText}`;
+                    sendPayload.content = `${prefix}**${msg.sender_name}:** ${cleanText}${escalationPings}`;
                 } else if (voiceMatch && voiceMatch[1]) {
-                    sendPayload.content = `${prefix}**${msg.sender_name}** *(Voice Message)*:`;
+                    sendPayload.content = `${prefix}**${msg.sender_name}** *(Voice Message)*:${escalationPings}`;
                 } else if (files.length > 0) {
-                    sendPayload.content = `${prefix}**${msg.sender_name}:**`;
+                    sendPayload.content = `${prefix}**${msg.sender_name}:**${escalationPings}`;
                 } else {
-                    sendPayload.content = `${prefix}**${msg.sender_name}:** ${msg.message}`;
+                    sendPayload.content = `${prefix}**${msg.sender_name}:** ${msg.message}${escalationPings}`;
                 }
 
                 await targetChannel.send(sendPayload).catch((sendErr) => {
