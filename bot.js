@@ -807,12 +807,14 @@ function setupSupabaseRealtime() {
                     } else if (rawMsgLower.includes('[handover_to_staff]')) {
                         alertedEscalationTickets.add(ticketKey);
                         escalationPings = `\n\n🔔 **Staff Attention:** ${MANAGEMENT_MENTIONS} ${MOD_MENTIONS}`;
+                    } else if (rawMsgLower.includes('[staff_pending_reminder]')) {
+                        escalationPings = `\n\n⏳ **Staff Reminder:** Player is still waiting for assistance in this ticket!`;
                     }
                 }
 
                 // Strip internal control tags and raw text @mentions from cleanText
                 cleanText = cleanText
-                    .replace(/\[(?:ESCALATE|HANDOVER)[^\]]*\]/gi, '')
+                    .replace(/\[(?:ESCALATE|HANDOVER|STAFF_PENDING_REMINDER)[^\]]*\]/gi, '')
                     .replace(/@(Admin|Owner|Mod)\b/gi, '')
                     .trim();
 
