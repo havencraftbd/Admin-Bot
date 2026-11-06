@@ -84,6 +84,9 @@ const alertedEscalationTickets = new Set();
 const discordOriginMessageKeys = new Set();
 const discordOriginMessageIds = new Set();
 
+// Set to deduplicate forwarded messages from Supabase into Discord (prevents double posting)
+const forwardedSupabaseMessageIds = new Set();
+
 // Helper: Close a Ticket (Triggered by Discord Staff)
 async function closeTicket(ticketId, channel, closedByName) {
     try {
@@ -676,6 +679,19 @@ function setupSupabaseRealtime() {
         }, async (payload) => {
             const msg = payload.new;
             if (!msg) return;
+
+            // Strict deduplication: If this exact message ID was already forwarded to Discord, SKIP immediately!
+            if (msg.id) {
+                const msgIdStr = String(msg.id);
+                if (forwardedSupabaseMessageIds.has(msgIdStr)) {
+                    return;
+                }
+                forwardedSupabaseMessageIds.add(msgIdStr);
+                if (forwardedSupabaseMessageIds.size > 2000) {
+                    const it = forwardedSupabaseMessageIds.values();
+                    for (let i = 0; i < 500; i++) forwardedSupabaseMessageIds.delete(it.next().value);
+                }
+            }
 
             // C1. Handle Player CSAT Star Rating
             if (msg.sender === 'system' && typeof msg.message === 'string' && msg.message.includes('Player Rating:')) {
